@@ -1,0 +1,73 @@
+plugins {
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+	archivesName = "crackers"
+}
+
+repositories {
+	// Seed-finding math libraries and the LatticG lattice reducer.
+	maven { url "https://maven.seedfinding.com/" }
+	maven { url "https://maven-snapshots.seedfinding.com/" }
+	maven { url "https://maven.latticg.com/" }
+	maven { url "https://jitpack.io" }
+}
+
+dependencies {
+	// To change the versions see the gradle.properties file
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+
+	// Only the Fabric API modules Crackers actually uses, bundled into the jar.
+	Set<String> apiModules = [
+		"fabric-api-base",
+		"fabric-command-api-v2",
+		"fabric-lifecycle-events-v1",
+		"fabric-resource-loader-v0"
+	]
+	apiModules.forEach {
+		include implementation(fabricApi.module(it, project.fabric_api_version))
+	}
+
+	// Seed-finding libraries. Bundled (include) so the mod is self-contained.
+	include implementation("com.seedfinding:mc_math:${project.seedfinding_math_version}") { transitive = false }
+	include implementation("com.seedfinding:mc_seed:${project.seedfinding_seed_version}") { transitive = false }
+	include implementation("com.seedfinding:mc_core:${project.seedfinding_core_version}") { transitive = false }
+	include implementation("com.seedfinding:mc_noise:${project.seedfinding_noise_version}") { transitive = false }
+	include implementation("com.seedfinding:mc_biome:${project.seedfinding_biome_version}") { transitive = false }
+	include implementation("com.seedfinding:mc_terrain:${project.seedfinding_terrain_version}") { transitive = false }
+	include implementation("com.seedfinding:mc_feature:${project.seedfinding_feature_version}") { transitive = false }
+	include implementation("com.seedfinding:mc_reversal:${project.seedfinding_reversal_version}") { transitive = false }
+	include implementation("com.seedfinding:latticg:${project.latticg_version}")
+}
+
+processResources {
+	def props = [version: project.version, loader_version: project.loader_version]
+	inputs.properties props
+	filteringCharset "UTF-8"
+
+	filesMatching("fabric.mod.json") {
+		expand props
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+}
+
+java {
+	withSourcesJar()
+
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+}
+
+jar {
+	from("LICENSE") {
+		rename { "${it}_crackers" }
+	}
+}

@@ -1,0 +1,34 @@
+{
+	"schemaVersion": 1,
+	"id": "crackers",
+	"version": "${version}",
+	"name": "Crackers",
+	"description": "Easy-to-use client-sided Fabric 26.2 Seed Cracker. Start with /cracker.",
+	"authors": [
+		"TCMFatbird"
+	],
+	"contact": {
+		"homepage": "",
+		"sources": "https://github.com/19MisterX98/SeedcrackerX"
+	},
+	"license": "MIT",
+	"icon": "assets/crackers/icon.png",
+	"environment": "client",
+	"entrypoints": {
+		"main": [
+			"net.birb.crackers.SeedCracker"
+		]
+	},
+	"mixins": [
+		"crackers.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=${loader_version}",
+		"minecraft": ">=26.2 <26.3",
+		"java": ">=25",
+		"fabric-api-base": "*",
+		"fabric-command-api-v2": "*",
+		"fabric-lifecycle-events-v1": "*",
+		"fabric-resource-loader-v0": "*"
+	}
+}
