@@ -12,6 +12,8 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 
+import java.util.Map;
+
 /**
  * Registers the {@code /cracker} client command.
  * <p>
@@ -70,6 +72,17 @@ public final class CrackerCommand {
                 (int) s.getBaseBits(), (int) s.getWantedBits(), s.getStructureCount()), ChatFormatting.AQUA);
         feedback(String.format("Lifting bits: %d / 40. End pillars: %s.",
                 (int) s.getLiftingBits(), s.hasPillarData() ? "captured" : "not captured"), ChatFormatting.AQUA);
+
+        StringBuilder breakdown = new StringBuilder();
+        for (Map.Entry<String, Integer> e : s.getTypeCounts().entrySet()) {
+            if (breakdown.length() > 0) breakdown.append(", ");
+            breakdown.append(e.getValue()).append("x ").append(e.getKey());
+        }
+        feedback(breakdown.length() == 0 ? "No structures collected yet." : "Found: " + breakdown,
+                ChatFormatting.GRAY);
+
+        feedback("Status: " + s.getStatus().getMessage(),
+                s.getStatus().isStalled() ? ChatFormatting.YELLOW : ChatFormatting.GRAY);
         return 1;
     }
 

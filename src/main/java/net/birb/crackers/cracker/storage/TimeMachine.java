@@ -29,17 +29,26 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.LongStream;
-import java.util.stream.Stream;
 
 public class TimeMachine {
     private static final Logger logger = LoggerFactory.getLogger("timeMachine");
 
     public static ExecutorService SERVICE = Executors.newFixedThreadPool(5);
+
+    /**
+     * Each surviving low-bit candidate costs a full 2^29 scan, so a clustered data set
+     * that leaves thousands of them turns into an hour-long search that still ends in
+     * millions of candidates. Measured over random worlds, honest data leaves at most
+     * ~110 survivors (usually 1-4), so anything past this is a data-quality problem
+     * and is worth reporting rather than grinding on.
+     */
+    private static final int MAX_LOWER_CANDIDATES = 128;
 
     private final LCG inverseLCG = LCG.JAVA.combine(-2);
     public boolean isRunning = false;
@@ -48,6 +57,8 @@ public class TimeMachine {
     public Set<Long> structureSeeds = new HashSet<>();
     public Set<Long> worldSeeds = new HashSet<>();
     protected DataStorage dataStorage;
+    /** Total bits present when the last lift failed, so it isn't retried on every new find. */
+    private double lastFailedAtBits = -1.0D;
 
     public TimeMachine(DataStorage dataStorage) {
         this.dataStorage = dataStorage;
@@ -79,6 +90,7 @@ public class TimeMachine {
         }
         if (this.worldSeeds.size() == 1 && !this.shouldTerminate) {
             long seed = worldSeeds.stream().findFirst().get();
+            this.dataStorage.setStatus(DataStorage.Status.SOLVED);
             SeedCracker.reportSeed(seed, "structure & world-gen data");
         }
     }
@@ -108,8 +120,21 @@ public class TimeMachine {
 
     protected boolean pokeLifting() {
         if (!this.structureSeeds.isEmpty() || this.dataStorage.getLiftingBits() < 40F) return false;
+
+        // pokeStructures has always required this and pokeLifting never did, so the
+        // lift would start with far too little data to pin down a single seed.
+        if (this.dataStorage.getBaseBits() < this.dataStorage.getWantedBits()) {
+            this.dataStorage.setStatus(DataStorage.Status.NEED_MORE_STRUCTURES);
+            return false;
+        }
+
+        double bitsNow = this.dataStorage.getBaseBits() + this.dataStorage.getLiftingBits();
+        if (this.lastFailedAtBits >= 0 && bitsNow < this.lastFailedAtBits + 8.0D) return false;
+
         List<UniformStructure.Data<?>> dataList = new ArrayList<>();
 
+        // Outposts stay in here: they cannot verify a seed, but their placement draw
+        // still narrows the low bits, which is the expensive part of the search.
         for (DataStorage.Entry<Feature.Data<?>> e : this.dataStorage.baseSeedData) {
             if (e.data.feature instanceof OldStructure || e.data.feature instanceof Shipwreck) {
                 dataList.add((UniformStructure.Data<?>) e.data);
@@ -124,50 +149,91 @@ public class TimeMachine {
                 }
             }
         }
-        Log.warn("tmachine.startLifting", dataList.size());
 
         // You could first lift on 1L<<18 with %2 since that would be a smaller range
         // Then lift on 1<<19 with those 1<<18 fixed with % 4 and for nextInt(24)
         // You can even do %8 on 1<<20 (however we included shipwreck so only nextInt(20) so 1<<19 is the max here
-        Stream<Long> lowerBitsStream = LongStream.range(0, 1L << 19).boxed().filter(lowerBits -> {
+        MCVersion version = Config.get().getVersion();
+        long[] lowerBits = LongStream.range(0, 1L << 19).filter(lower -> {
             ChunkRand rand = new ChunkRand();
             for (UniformStructure.Data<?> data : dataList) {
-                rand.setRegionSeed(lowerBits, data.regionX, data.regionZ, data.feature.getSalt(), Config.get().getVersion());
-                if (rand.nextInt(((UniformStructure<?>)data.feature).getOffset()) % 4 != data.offsetX % 4 ||
-                        rand.nextInt(((UniformStructure<?>)data.feature).getOffset()) % 4 != data.offsetZ % 4) {
+                int offset = ((UniformStructure<?>) data.feature).getOffset();
+                rand.setRegionSeed(lower, data.regionX, data.regionZ, data.feature.getSalt(), version);
+                if (rand.nextInt(offset) % 4 != data.offsetX % 4 ||
+                        rand.nextInt(offset) % 4 != data.offsetZ % 4) {
                     return false;
                 }
             }
             return true;
-        });
+        }).toArray();
 
-        Stream<Long> seedStream = lowerBitsStream.flatMap(lowerBits ->
-                LongStream.range(0, 1L << (48 - 19))
-                        .boxed()
-                        .map(upperBits -> (upperBits << 19) | lowerBits)
-        );
+        if (lowerBits.length > MAX_LOWER_CANDIDATES) {
+            this.dataStorage.setStatus(DataStorage.Status.TOO_CLUSTERED);
+            this.lastFailedAtBits = bitsNow;
+            return false;
+        }
 
-        Stream<Long> strutureSeedStream = seedStream.filter(seed -> {
-            ChunkRand rand = new ChunkRand();
-            for (Feature.Data<?> data : cache) {
-                if (!data.testStart(seed, rand)) {
-                    return false;
-                }
-            }
-            return true;
-        });
+        Log.warn("tmachine.startLifting", dataList.size());
+        this.dataStorage.setStatus(DataStorage.Status.SOLVING);
 
-        this.structureSeeds = strutureSeedStream.parallel().collect(Collectors.toSet());
+        Set<Long> result = searchUpperBits(lowerBits, cache);
+        // A cancelled scan has only covered part of the range, so keeping its result
+        // would permanently hide the real seed behind a non-empty structureSeeds set.
+        if (this.shouldTerminate) return false;
+        this.structureSeeds = result;
 
         if (!this.structureSeeds.isEmpty()) {
+            this.lastFailedAtBits = -1.0D;
             Log.warn("tmachine.structureSeedSearchFinished");
         } else {
+            this.lastFailedAtBits = bitsNow;
+            this.dataStorage.setStatus(DataStorage.Status.NO_RESULT);
             Log.error("finishedSearchNoResult");
         }
 
         return !this.structureSeeds.isEmpty();
     }
 
+    /**
+     * Expands each low-bit candidate over the remaining 29 bits. Iterates primitive
+     * longs in parallel chunks; the previous boxed {@code Stream<Long>} flatMap
+     * allocated well over a billion objects per attempt and could not be cancelled.
+     */
+    private Set<Long> searchUpperBits(long[] lowerBits, List<Feature.Data<?>> cache) {
+        final long upperMax = 1L << (48 - 19);
+        final int chunks = 256;
+        final long chunkSize = upperMax / chunks;
+        // Indexed over an array rather than the list: the enhanced-for allocated an
+        // iterator for every one of the billions of seeds tested.
+        final Feature.Data<?>[] tests = cache.toArray(new Feature.Data<?>[0]);
+        Set<Long> found = ConcurrentHashMap.newKeySet();
+
+        for (long lower : lowerBits) {
+            if (this.shouldTerminate) break;
+            final long lowerFixed = lower;
+
+            IntStream.range(0, chunks).parallel().forEach(chunk -> {
+                if (this.shouldTerminate) return;
+                ChunkRand rand = new ChunkRand();
+                long from = (long) chunk * chunkSize;
+                long to = chunk == chunks - 1 ? upperMax : from + chunkSize;
+
+                for (long upper = from; upper < to; upper++) {
+                    long seed = (upper << 19) | lowerFixed;
+                    boolean matches = true;
+
+                    for (int i = 0; i < tests.length; i++) {
+                        if (!tests[i].testStart(seed, rand)) {
+                            matches = false;
+                            break;
+                        }
+                    }
+                    if (matches) found.add(seed);
+                }
+            });
+        }
+        return found;
+    }
 
     protected boolean pokeStructures() {
         if (this.pillarSeeds == null || !this.structureSeeds.isEmpty() ||
@@ -252,7 +318,10 @@ public class TimeMachine {
 
     protected boolean pokeBiomes() {
         if (this.structureSeeds.isEmpty() || this.worldSeeds.size() == 1) return false;
-        if (this.structureSeeds.size() > 1000) return false;
+        if (this.structureSeeds.size() > 1000) {
+            this.dataStorage.setStatus(DataStorage.Status.TOO_MANY_CANDIDATES);
+            return false;
+        }
 
         Log.debug("====================================");
 

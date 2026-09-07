@@ -7,6 +7,7 @@ import com.seedfinding.mcfeature.decorator.EndGateway;
 import com.seedfinding.mcfeature.structure.BuriedTreasure;
 import com.seedfinding.mcfeature.structure.OldStructure;
 import com.seedfinding.mcfeature.structure.PillagerOutpost;
+import com.seedfinding.mcfeature.structure.RegionStructure;
 import com.seedfinding.mcfeature.structure.Shipwreck;
 import com.seedfinding.mcfeature.structure.Structure;
 import com.seedfinding.mcfeature.structure.TriangularStructure;
@@ -25,8 +26,12 @@ import net.birb.crackers.finder.BlockUpdateQueue;
 import net.birb.crackers.gui.CrackerScreen;
 import net.minecraft.client.Minecraft;
 
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
@@ -58,6 +63,8 @@ public class DataStorage {
     protected ScheduledSet<Entry<BiomeData>> biomeSeedData = new ScheduledSet<>(null);
     /** Set when new structure data arrives; triggers an auto-save to disk on the next tick. */
     private volatile boolean saveDirty = false;
+    /** What the solver is actually doing, so the GUI never claims progress that stopped. */
+    private volatile Status status = Status.COLLECTING;
 
     public static double getBits(Feature feature, boolean decorators18) {
         if (feature instanceof UniformStructure s) {
@@ -171,26 +178,90 @@ public class DataStorage {
 
     public double getBaseBits() {
         double bits = 0.0D;
+        List<RegionStructure.Data<?>> regionData = new ArrayList<>();
 
         for (Entry<Feature.Data<?>> e : this.baseSeedData) {
-            if (!(e.data.feature instanceof PillagerOutpost)) {
+            if (e.data.feature instanceof PillagerOutpost) continue;
+            if (e.data instanceof RegionStructure.Data<?> d) {
+                regionData.add(d);
+            } else {
                 bits += getBits(e.data.feature, false);
             }
+        }
+
+        for (RegionStructure.Data<?> d : uncorrelated(regionData)) {
+            bits += getBits(d.feature, false);
         }
         return bits;
     }
 
+    /**
+     * Structures whose position can be lifted, i.e. whose region placement draw
+     * is usable by {@link TimeMachine#pokeLifting()}. Outposts are excluded
+     * because they are dropped from the verification set (see the cache built in
+     * {@code pokeLifting}), so they can never help confirm a structure seed.
+     */
+    public static boolean isLiftable(Feature<?, ?> feature) {
+        if (feature instanceof PillagerOutpost) return false;
+        return feature instanceof OldStructure || feature instanceof Shipwreck;
+    }
+
+    /**
+     * Two structures placed from region seeds that differ by only a few units
+     * carry almost the same information: the region seed is
+     * {@code regionX*A + regionZ*B + salt + worldSeed}, and the four "old"
+     * structure types have consecutive salts (14357617-14357620), so finding a
+     * temple, an igloo and a hut in one region is close to finding a single
+     * structure three times. Measured: four such structures in one region supply
+     * ~15 bits, not the ~37 a naive sum reports.
+     */
+    private static final long CORRELATION_WINDOW = 16L;
+
+    /** Drops structures that repeat information a nearer-seeded one already gave. */
+    private static List<RegionStructure.Data<?>> uncorrelated(List<RegionStructure.Data<?>> data) {
+        List<RegionStructure.Data<?>> sorted = new ArrayList<>(data);
+        sorted.sort(Comparator.comparingLong(d -> d.baseRegionSeed));
+
+        List<RegionStructure.Data<?>> kept = new ArrayList<>();
+        Long last = null;
+
+        for (RegionStructure.Data<?> d : sorted) {
+            if (last != null && d.baseRegionSeed - last < CORRELATION_WINDOW) continue;
+            last = d.baseRegionSeed;
+            kept.add(d);
+        }
+        return kept;
+    }
+
+    /**
+     * Usable lifting information, counting a group of mutually correlated
+     * structures only once. This is what gates the lift, so it must not
+     * over-report or the solver is launched into a search it cannot finish.
+     */
     public double getLiftingBits() {
-        double bits = 0.0D;
+        List<RegionStructure.Data<?>> liftable = new ArrayList<>();
 
         for (Entry<Feature.Data<?>> e : this.baseSeedData) {
-            if (e.data.feature instanceof OldStructure structure) {
-                bits += Math.log(structure.getOffset() * structure.getOffset()) / Math.log(2);
-            } else if (e.data.feature instanceof Shipwreck shipwreck) {
-                bits += Math.log(shipwreck.getOffset() * shipwreck.getOffset()) / Math.log(2);
+            if (isLiftable(e.data.feature) && e.data instanceof RegionStructure.Data<?> d) {
+                liftable.add(d);
             }
         }
+
+        double bits = 0.0D;
+        for (RegionStructure.Data<?> d : uncorrelated(liftable)) {
+            int offset = ((UniformStructure<?>) d.feature).getOffset();
+            bits += Math.log(offset * offset) / Math.log(2);
+        }
         return bits;
+    }
+
+    /** Number of collected data points per structure type, for the GUI and {@code /cracker bits}. */
+    public Map<String, Integer> getTypeCounts() {
+        Map<String, Integer> counts = new TreeMap<>();
+        for (Entry<Feature.Data<?>> e : this.baseSeedData) {
+            counts.merge(e.data.feature.getName(), 1, Integer::sum);
+        }
+        return counts;
     }
 
     public double getDecoratorBits() {
@@ -218,6 +289,19 @@ public class DataStorage {
         return this.pillarData != null;
     }
 
+    public Status getStatus() {
+        return this.status;
+    }
+
+    /** Reports a solver state change to the GUI, and to chat when the run has stalled. */
+    public void setStatus(Status status) {
+        if (this.status == status) return;
+        this.status = status;
+        if (status.isStalled()) {
+            net.birb.crackers.util.Log.reportStalled(status.getMessage());
+        }
+    }
+
     public boolean notEnoughBiomeData() {
         return this.biomeSeedData.size() < 7;
     }
@@ -225,12 +309,45 @@ public class DataStorage {
     public void clear() {
         this.scheduledData = ConcurrentHashMap.newKeySet();
         this.pillarData = null;
+        this.status = Status.COLLECTING;
         this.baseSeedData = new ScheduledSet<>(SEED_DATA_COMPARATOR);
         this.biomeSeedData = new ScheduledSet<>(null);
         //this.hashedSeedData = null;
         this.timeMachine.shouldTerminate = true;
         this.timeMachine = new TimeMachine(this);
         this.blockUpdateQueue = new BlockUpdateQueue();
+    }
+
+    /**
+     * Outcome of the last solver attempt. Previously every one of these ended in a
+     * bare {@code return false} and the screen kept showing "Cracking the seed...",
+     * so a search that had given up looked identical to one still running.
+     */
+    public enum Status {
+        COLLECTING("Collecting world-gen data\u2026", false),
+        SOLVING("Cracking the seed\u2026 watch the chat!", false),
+        SOLVED("World seed found.", false),
+        NEED_MORE_STRUCTURES("Lifting ready - need more structures of any kind.", true),
+        TOO_CLUSTERED("Structures are too close together - explore further out.", true),
+        TOO_MANY_CANDIDATES("Too many possible seeds - collect more structures.", true),
+        NO_RESULT("Nothing matched - a structure may be looted. Try /cracker clear.", true);
+
+        private final String message;
+        private final boolean stalled;
+
+        Status(String message, boolean stalled) {
+            this.message = message;
+            this.stalled = stalled;
+        }
+
+        public String getMessage() {
+            return this.message;
+        }
+
+        /** Whether the pipeline has stopped and needs the player to do something. */
+        public boolean isStalled() {
+            return this.stalled;
+        }
     }
 
     public static class Entry<T> {

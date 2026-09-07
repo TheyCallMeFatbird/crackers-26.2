@@ -34,6 +34,12 @@ public class Log {
         sendMessage(Component.literal(message).withStyle(ChatFormatting.RED));
     }
 
+    /** Tells the player, in plain words, that the solve stopped and why. */
+    public static void reportStalled(String message) {
+        sendMessage(Component.literal("[Crackers] ").withStyle(ChatFormatting.LIGHT_PURPLE)
+                .append(Component.literal(message).withStyle(ChatFormatting.YELLOW)));
+    }
+
     public static void printSeed(String translateKey, long seedValue) {
         String message = translate(translateKey);
         String[] data = message.split(Pattern.quote("${SEED}"));

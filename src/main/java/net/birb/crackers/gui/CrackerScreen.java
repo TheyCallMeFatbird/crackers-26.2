@@ -11,6 +11,7 @@ import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The {@code /cracker} GUI. Shows live cracking progress, the found seed (with
@@ -140,9 +141,14 @@ public class CrackerScreen extends Screen {
         int right = panelX + panelW - 14;
         int barH = 8;
 
+        DataStorage.Status status = s.getStatus();
         String activity;
+        int activityColor = ACCENT;
         if (!Config.get().active) {
             activity = "Paused - press \"Cracking: ON\"";
+        } else if (status.isStalled()) {
+            activity = status.getMessage();
+            activityColor = AMBER;
         } else if (bits >= wanted && gateOpen) {
             activity = "Cracking the seed\u2026 watch the chat!";
         } else if (bits >= wanted) {
@@ -150,7 +156,7 @@ public class CrackerScreen extends Screen {
         } else {
             activity = "Collecting world-gen data\u2026";
         }
-        graphics.text(this.font, Component.literal(activity), left, y, ACCENT);
+        graphics.text(this.font, Component.literal(activity), left, y, activityColor);
 
         // Bar 1: general structure bits (candidate-checking data).
         int bar1Y = y + 13;
@@ -177,8 +183,14 @@ public class CrackerScreen extends Screen {
                                 + "  \u00b7  Hashed seed: " + (hashed ? "captured" : "not yet")),
                 left, infoY, hashed ? GREEN : GREY);
 
+        int breakdownY = infoY + 11;
+        for (String breakdown : breakdownLines(s, right - left)) {
+            graphics.text(this.font, Component.literal(breakdown), left, breakdownY, GREY);
+            breakdownY += 10;
+        }
+
         // Instructions.
-        int insY = infoY + 15;
+        int insY = breakdownY + 4;
         graphics.fill(left, insY - 4, right, insY - 3, DARK);
         graphics.text(this.font, Component.literal("How to crack:").withStyle(net.minecraft.ChatFormatting.BOLD),
                 left, insY, WHITE);
@@ -187,6 +199,36 @@ public class CrackerScreen extends Screen {
             graphics.text(this.font, Component.literal(tip), left, line, GREY);
             line += 10;
         }
+    }
+
+    /** What has actually been found, so "11 structures but no lift" is self-explaining. */
+    private List<String> breakdownLines(DataStorage s, int maxWidth) {
+        List<String> lines = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+
+        for (Map.Entry<String, Integer> e : s.getTypeCounts().entrySet()) {
+            String part = e.getValue() + "x " + prettify(e.getKey());
+            String candidate = current.length() == 0 ? part : current + "  \u00b7  " + part;
+
+            if (current.length() > 0 && this.font.width(candidate) > maxWidth) {
+                lines.add(current.toString());
+                current = new StringBuilder(part);
+            } else {
+                current = new StringBuilder(candidate);
+            }
+        }
+        if (current.length() > 0) lines.add(current.toString());
+        return lines;
+    }
+
+    private static String prettify(String name) {
+        StringBuilder sb = new StringBuilder();
+        for (String word : name.split("_")) {
+            if (word.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1));
+        }
+        return sb.toString();
     }
 
     private void drawBar(GuiGraphicsExtractor graphics, int left, int y, int right, int h, double frac, int color) {
