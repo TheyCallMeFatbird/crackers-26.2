@@ -8,14 +8,13 @@
 		"TCMFatbird"
 	],
 	"contact": {
-		"homepage": "",
-		"sources": "https://github.com/19MisterX98/SeedcrackerX"
+		"sources": "https://github.com/TCMFatbird/crackers"
 	},
 	"license": "MIT",
 	"icon": "assets/crackers/icon.png",
 	"environment": "client",
 	"entrypoints": {
-		"main": [
+		"client": [
 			"net.birb.crackers.SeedCracker"
 		]
 	},

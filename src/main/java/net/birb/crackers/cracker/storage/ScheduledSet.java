@@ -1,52 +1,60 @@
 package net.birb.crackers.cracker.storage;
 
-import java.util.Comparator;
-import java.util.HashSet;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
-import java.util.TreeSet;
+import java.util.function.Predicate;
 
+/**
+ * A set that stages additions until the solver is between runs.
+ * <p>
+ * Finders add from chunk-scanning threads while the solver iterates on its own
+ * threads, so nothing hands out a live view any more: {@link #snapshot} copies
+ * under the lock and callers iterate the copy. The previous version returned
+ * {@code baseSet.iterator()} straight out of a synchronized method, which
+ * synchronizes exactly nothing once the caller starts iterating.
+ */
 public class ScheduledSet<T> implements Iterable<T> {
 
-    protected final Set<T> baseSet;
-    protected final Set<T> scheduledSet;
-
-    public ScheduledSet(Comparator<T> comparator) {
-        if (comparator != null) {
-            this.baseSet = new TreeSet<>(comparator);
-        } else {
-            this.baseSet = new HashSet<>();
-        }
-
-        this.scheduledSet = new HashSet<>();
-    }
+    private final Set<T> baseSet = new LinkedHashSet<>();
+    private final Set<T> scheduledSet = new LinkedHashSet<>();
 
     public synchronized void scheduleAdd(T e) {
         this.scheduledSet.add(e);
     }
 
     public synchronized void dump() {
-        synchronized (this.baseSet) {
-            this.baseSet.addAll(this.scheduledSet);
-            this.scheduledSet.clear();
-        }
+        this.baseSet.addAll(this.scheduledSet);
+        this.scheduledSet.clear();
     }
 
     public synchronized boolean contains(T e) {
         return this.baseSet.contains(e) || this.scheduledSet.contains(e);
     }
 
-    public Set<T> getBaseSet() {
-        return this.baseSet;
+    /** An independent copy. Iterate this, never the set itself. */
+    public synchronized List<T> snapshot() {
+        return new ArrayList<>(this.baseSet);
+    }
+
+    public synchronized void removeIf(Predicate<T> predicate) {
+        this.baseSet.removeIf(predicate);
+        this.scheduledSet.removeIf(predicate);
+    }
+
+    public synchronized void clear() {
+        this.baseSet.clear();
+        this.scheduledSet.clear();
     }
 
     @Override
-    public synchronized Iterator<T> iterator() {
-        return this.baseSet.iterator();
+    public Iterator<T> iterator() {
+        return snapshot().iterator();
     }
 
     public synchronized int size() {
         return this.baseSet.size();
     }
-
 }

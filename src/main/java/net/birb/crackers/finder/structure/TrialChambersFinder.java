@@ -6,19 +6,14 @@ import net.birb.crackers.SeedCracker;
 import net.birb.crackers.cracker.DataAddedEvent;
 import net.birb.crackers.finder.Finder;
 import net.birb.crackers.render.Cuboid;
-import net.birb.crackers.util.BiomeFixer;
-import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Vec3i;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.tags.BiomeTags;
 import net.minecraft.util.ARGB;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.biome.Biome;
-import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.block.entity.vault.VaultState;
 import net.minecraft.world.level.block.state.properties.ChestType;
@@ -195,11 +190,15 @@ public class TrialChambersFinder extends Finder {
 
     @Override
     public List<BlockPos> findInChunk() {
-        Biome biome = this.world.getNoiseBiome((this.chunkPos.x() << 2) + 2, 64, (this.chunkPos.z() << 2) + 2).value();
-        // TODO: replace with following once deep dark is implemented
-        // if (!Features.TRIAL_CHAMBERS.isValidBiome(BiomeFixer.swap(biome))) return new ArrayList<>();
-        if (Minecraft.getInstance().level.registryAccess().lookup(Registries.BIOME).get().getKey(biome).equals(Biomes.DEEP_DARK)) return new ArrayList<>();
-
+        // The deep-dark exclusion that used to live here compared a
+        // ResourceLocation against a ResourceKey, so it was always false and
+        // never excluded anything. It also dereferenced
+        // Minecraft.getInstance().level from a chunk-scanning thread, where it
+        // can be null during a dimension change - and FinderQueue swallows the
+        // resulting exception unless debug logging is on, which would take
+        // trial chamber detection out silently. Removed rather than repaired:
+        // the seedfinding library has no deep dark to test against yet, and an
+        // exclusion that never fired is not one worth keeping.
         Map<JigsawFinder, List<BlockPos>> result = this.findInChunkPieces();
         List<BlockPos> combinedResult = new ArrayList<>();
 

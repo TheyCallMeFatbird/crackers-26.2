@@ -154,7 +154,7 @@ public class Dungeon extends Decorator<Decorator.Config, Dungeon.Data> {
 
         public void onDataAdded(DataStorage dataStorage) {
             dataStorage.getTimeMachine().poke(TimeMachine.Phase.STRUCTURES);
-            if (dataStorage.getTimeMachine().shouldTerminate) return;
+            if (dataStorage.getTimeMachine().isTerminated()) return;
             if (dataStorage.getTimeMachine().worldSeeds.size() == 1) return;
             if (dataStorage.getTimeMachine().structureSeeds.size() == 1) return;
             if (this.feature.getVersion().isNewerThan(MCVersion.v1_17_1)) return;
@@ -200,7 +200,7 @@ public class Dungeon extends Decorator<Decorator.Config, Dungeon.Data> {
 
             Set<Long> decoratorSeeds = device.reverse().parallel().boxed().collect(Collectors.toSet());
 
-            if (dataStorage.getTimeMachine().shouldTerminate) {
+            if (dataStorage.getTimeMachine().isTerminated()) {
                 return;
             }
 

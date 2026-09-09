@@ -20,7 +20,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * Reads the ten obsidian pillars around the End spawn.
+ * <p>
+ * Their heights are a shuffle of ten fixed values driven by the low 16 bits of
+ * the world seed, so seeing the layout is worth as much as the entire lifting
+ * requirement.
+ */
 public class EndPillarsFinder extends Finder {
+
+    /** Lowest and highest a pillar cap can sit: 76 + index * 3 for index 0..9. */
+    private static final int MIN_CAP_Y = 76;
+    private static final int MAX_CAP_Y = 76 + 3 * 9;
 
     private final boolean alreadyFound;
     protected BedrockMarkerFinder[] bedrockMarkers = new BedrockMarkerFinder[10];
@@ -38,7 +49,8 @@ public class EndPillarsFinder extends Finder {
                 x = Math.round(x);
                 z = Math.round(z);
             }
-            this.bedrockMarkers[i] = new BedrockMarkerFinder(this.world, ChunkPos.containing(BlockPos.containing(x, 0, z)), BlockPos.containing(x, 0, z));
+            BlockPos pillar = BlockPos.containing(x, 0, z);
+            this.bedrockMarkers[i] = new BedrockMarkerFinder(this.world, ChunkPos.containing(pillar), pillar);
         }
     }
 
@@ -54,7 +66,10 @@ public class EndPillarsFinder extends Finder {
 
         for (BedrockMarkerFinder bedrockMarker : this.bedrockMarkers) {
             if (bedrockMarker == null) continue;
-            result.addAll(bedrockMarker.findInChunk());
+            List<BlockPos> hits = bedrockMarker.findInChunk();
+            // Exactly one cap per pillar, or the reading is not trustworthy.
+            if (hits.size() != 1) return new ArrayList<>();
+            result.addAll(hits);
         }
 
         if (result.size() == this.bedrockMarkers.length) {
@@ -63,7 +78,6 @@ public class EndPillarsFinder extends Finder {
             if (SeedCracker.get().getDataStorage().addPillarData(pillarData, DataAddedEvent.POKE_PILLARS)) {
                 result.forEach(pos -> this.cuboids.add(new Cuboid(pos, ARGB.color(128, 0, 128))));
             }
-
         }
 
         return result;
@@ -74,32 +88,34 @@ public class EndPillarsFinder extends Finder {
         return this.isEnd(dimension);
     }
 
+    /**
+     * Looks for the bedrock cap of one specific pillar.
+     * <p>
+     * The pillar coordinate used to be passed in and then ignored, so this
+     * searched every column of the chunk instead of the one the pillar is in.
+     * Any stray bedrock in that chunk within the cap height range would be read
+     * as a pillar height, and one wrong height poisons the entire pillar seed.
+     */
     public static class BedrockMarkerFinder extends BlockFinder {
 
-        protected static List<BlockPos> SEARCH_POSITIONS;
-
-        public BedrockMarkerFinder(Level world, ChunkPos chunkPos, BlockPos xz) {
+        public BedrockMarkerFinder(Level world, ChunkPos chunkPos, BlockPos pillar) {
             super(world, chunkPos, Blocks.BEDROCK);
-            this.searchPositions = SEARCH_POSITIONS;
+            this.searchPositions = columnFor(pillar);
         }
 
-        public static void reloadSearchPositions() {
-            SEARCH_POSITIONS = buildSearchPositions(CHUNK_POSITIONS, pos -> {
-                if (pos.getY() < 76) return true;
-                return pos.getY() > 76 + 3 * 10;
-            });
-        }
-
-        @Override
-        public List<BlockPos> findInChunk() {
-            return super.findInChunk();
+        private static List<BlockPos> columnFor(BlockPos pillar) {
+            int localX = pillar.getX() & 15;
+            int localZ = pillar.getZ() & 15;
+            List<BlockPos> column = new ArrayList<>(MAX_CAP_Y - MIN_CAP_Y + 1);
+            for (int y = MIN_CAP_Y; y <= MAX_CAP_Y; y++) {
+                column.add(new BlockPos(localX, y, localZ));
+            }
+            return column;
         }
 
         @Override
         public boolean isValidDimension(DimensionType dimension) {
             return true;
         }
-
     }
-
 }

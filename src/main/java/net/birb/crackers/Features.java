@@ -26,6 +26,43 @@ import java.util.List;
 import java.util.function.Supplier;
 
 public class Features {
+
+    /**
+     * A feature's name, never null.
+     * <p>
+     * The library resolves names through a map of its own classes, so anything
+     * added here returns null and poisons every map key, hash and log line it
+     * reaches. Use this rather than {@code feature.getName()} anywhere a null
+     * would matter.
+     */
+    /**
+     * The name to show a player, taken from the language file when there is an
+     * entry for it.
+     * <p>
+     * Add or edit {@code crackers.structure.<id>} in
+     * {@code assets/crackers/lang/en_us.json} to rename anything - "Witch Hut"
+     * instead of "Swamp Hut", say. Without an entry the internal id is tidied
+     * up instead, so a new structure type still reads sensibly.
+     */
+    public static String displayName(String id) {
+        String key = "crackers.structure." + id;
+        String translated = net.birb.crackers.util.Log.translate(key);
+        if (!translated.equals(key)) return translated;
+
+        StringBuilder out = new StringBuilder();
+        for (String word : id.split("_")) {
+            if (word.isEmpty()) continue;
+            if (!out.isEmpty()) out.append(' ');
+            out.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1));
+        }
+        return out.toString();
+    }
+
+    public static String nameOf(Feature<?, ?> feature) {
+        if (feature == null) return "unknown";
+        String name = feature.getName();
+        return name != null ? name : feature.getClass().getSimpleName().toLowerCase(java.util.Locale.ROOT);
+    }
     public static final ArrayList<RegionStructure<?, ?>> STRUCTURE_TYPES = new ArrayList<>();
 
     public static BuriedTreasure BURIED_TREASURE;
@@ -75,7 +112,11 @@ public class Features {
             return lambda.get();
         } catch (Throwable t) {
             SeedCracker.LOGGER.error("Exception thrown loading feature", t);
-            finderType.enabled.set(false);
+            // Disable for this session only. This used to call
+            // finderType.enabled.set(false), which mutates the live config
+            // object, so the next Config.save() - any GUI toggle - wrote the
+            // failure to disk permanently.
+            finderType.available = false;
             return null;
         }
     }

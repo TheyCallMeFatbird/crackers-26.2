@@ -40,8 +40,4 @@ public class Cuboid {
     public BlockPos getCenterPos() {
         return this.centerPos;
     }
-
-    public int getColor() {
-        return this.argb;
-    }
 }

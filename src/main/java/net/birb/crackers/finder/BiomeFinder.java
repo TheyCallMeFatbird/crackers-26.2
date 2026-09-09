@@ -59,7 +59,7 @@ public class BiomeFinder extends Finder {
                 }
                 if (SeedCracker.get().getDataStorage().addBiomeData(data, DataAddedEvent.POKE_BIOMES)) {
                     blockPos = this.world.getHeightmapPos(Heightmap.Types.WORLD_SURFACE, blockPos).below();
-                    if (Config.get().debug) Log.warn(blockPos.toShortString() + ", " + otherBiome.getName());
+                    if (Config.get().debug) Log.debug(blockPos.toShortString() + ", " + otherBiome.getName());
                     result.add(blockPos);
                 }
             }

@@ -53,7 +53,7 @@ public class BuriedTreasureFinder extends BlockFinder {
             int localX = pos.getX() & 15;
             int localZ = pos.getZ() & 15;
             if (localX != 9 || localZ != 9) return true;
-            return pos.getY() > 90 && pos.getY() < 0;
+            return pos.getY() > 90 || pos.getY() < 0;
         });
     }
 

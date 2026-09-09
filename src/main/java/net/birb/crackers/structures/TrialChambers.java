@@ -24,6 +24,22 @@ public class TrialChambers extends UniformStructure<TrialChambers> {
         return "trial_chambers";
     }
 
+    /**
+     * Must be overridden, and its absence was fatal.
+     * <p>
+     * {@code Structure#getName()} resolves through a static class-to-name map
+     * built into the seedfinding library, which only contains the library's own
+     * structure classes. This one is ours, so it returned {@code null} - and
+     * every trial chamber found then threw a NullPointerException inside
+     * {@code DataStorage.Entry#hashCode} before it could be stored, which the
+     * chunk-scanning catch swallowed. Trial chambers were detected correctly
+     * and discarded silently, every single time.
+     */
+    @Override
+    public String getName() {
+        return name();
+    }
+
     @Override
     public Dimension getValidDimension() {
         return Dimension.OVERWORLD;

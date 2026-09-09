@@ -25,16 +25,22 @@ public class BiomeData {
         }
     }
 
+    /**
+     * Two samples are the same observation only if they are the same biome at
+     * the same place. This used to compare the biome alone, so the enclosing
+     * HashSet kept exactly one sample per biome type and threw away every other
+     * position - and two plains samples at different coordinates are two
+     * independent constraints on the seed, not one.
+     */
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (!(o instanceof BiomeData)) return false;
-        BiomeData data = (BiomeData) o;
-        return this.biome == data.biome;
+        if (!(o instanceof BiomeData data)) return false;
+        return this.biome == data.biome && this.x == data.x && this.z == data.z;
     }
 
     @Override
     public int hashCode() {
-        return this.biome.getName().hashCode();
+        return (this.biome.getName().hashCode() * 31 + this.x) * 31 + this.z;
     }
 }

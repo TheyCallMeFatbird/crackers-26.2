@@ -11,36 +11,31 @@ import net.birb.crackers.finder.structure.*;
 import net.birb.crackers.render.Cuboid;
 import net.birb.crackers.util.FeatureToggle;
 import net.birb.crackers.util.HeightContext;
-import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.dimension.DimensionType;
-import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.function.Function;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
 
 public abstract class Finder {
 
-    protected static final List<BlockPos> CHUNK_POSITIONS = new ArrayList<>();
-    protected static final List<BlockPos> SUB_CHUNK_POSITIONS = new ArrayList<>();
-    protected static HeightContext heightContext;
+    /**
+     * Every position in a chunk column, ordered x then z then y.
+     * <p>
+     * Replaced wholesale by {@link ReloadFinders#reloadHeight}, never mutated in
+     * place: it used to be cleared and refilled on the client thread while
+     * finder threads were iterating it, which is a ConcurrentModificationException
+     * waiting for someone to walk through a nether portal. {@link JigsawFinder}
+     * also indexes into it positionally, so the ordering is load-bearing.
+     */
+    public static volatile List<BlockPos> CHUNK_POSITIONS = List.of();
+    protected static volatile HeightContext heightContext = new HeightContext(0, 256);
 
-    static {
-        for (int x = 0; x < 16; x++) {
-            for (int z = 0; z < 16; z++) {
-                for (int y = 0; y < 16; y++) {
-                    SUB_CHUNK_POSITIONS.add(new BlockPos(x, y, z));
-                }
-            }
-        }
-    }
-
-    protected Minecraft mc = Minecraft.getInstance();
     protected final List<Cuboid> cuboids = new ArrayList<>();
     protected Level world;
     protected ChunkPos chunkPos;
@@ -59,37 +54,12 @@ public abstract class Finder {
             }
         }
 
-        return newList;
-    }
-
-    public Level getWorld() {
-        return this.world;
-    }
-
-    public ChunkPos getChunkPos() {
-        return this.chunkPos;
+        return Collections.unmodifiableList(newList);
     }
 
     public abstract List<BlockPos> findInChunk();
 
-    public boolean shouldRender() {
-        DimensionType finderDim = this.world.dimensionType();
-        DimensionType playerDim = mc.player.level().dimensionType();
-
-        if (finderDim != playerDim) return false;
-
-        int renderDistance = mc.options.renderDistance().get() * 16 + 16;
-        Vec3 playerPos = mc.player.position();
-
-        for (Cuboid cuboid : this.cuboids) {
-            BlockPos pos = cuboid.getCenterPos();
-            double distance = playerPos.distanceToSqr(pos.getX(), playerPos.y, pos.getZ());
-            if (distance <= renderDistance * renderDistance + 32) return true;
-        }
-
-        return false;
-    }
-
+    /** Whether this finder actually found anything worth keeping. */
     public boolean isUseless() {
         return this.cuboids.isEmpty();
     }
@@ -108,14 +78,6 @@ public abstract class Finder {
         return dimension.skybox() == DimensionType.Skybox.END;
     }
 
-    public static String inferDimension(DimensionType dimension) {
-        return switch (dimension.skybox()) {
-            case OVERWORLD -> "overworld";
-            case NONE -> "the_nether";
-            case END -> "the_end";
-        };
-    }
-
     public enum Category {
         STRUCTURES,
         DECORATORS,
@@ -123,40 +85,55 @@ public abstract class Finder {
     }
 
     public enum Type {
-        BURIED_TREASURE(BuriedTreasureFinder::create, Category.STRUCTURES, Config.get().buriedTreasure, "finder.buriedTreasures"),
-        DESERT_TEMPLE(DesertPyramidFinder::create, Category.STRUCTURES, Config.get().desertTemple, "finder.desertTemples"),
-        END_CITY(EndCityFinder::create, Category.STRUCTURES, Config.get().endCity, "finder.endCities"),
-        JUNGLE_TEMPLE(JunglePyramidFinder::create, Category.STRUCTURES, Config.get().jungleTemple, "finder.jungleTemples"),
-        MONUMENT(MonumentFinder::create, Category.STRUCTURES, Config.get().monument, "finder.monuments"),
-        SWAMP_HUT(SwampHutFinder::create, Category.STRUCTURES, Config.get().swampHut, "finder.swampHuts"),
-        SHIPWRECK(ShipwreckFinder::create, Category.STRUCTURES, Config.get().shipwreck, "finder.shipwrecks"),
-        PILLAGER_OUTPOST(OutpostFinder::create, Category.STRUCTURES, Config.get().outpost, "finder.outposts"),
-        IGLOO(IglooFinder::create, Category.STRUCTURES, Config.get().igloo, "finder.igloo"),
-        TRIAL_CHAMBERS(TrialChambersFinder::create, Category.STRUCTURES, Config.get().trialChambers, "finder.trialChambers"),
+        BURIED_TREASURE(BuriedTreasureFinder::create, Category.STRUCTURES, c -> c.buriedTreasure, "finder.buriedTreasures"),
+        DESERT_TEMPLE(DesertPyramidFinder::create, Category.STRUCTURES, c -> c.desertTemple, "finder.desertTemples"),
+        END_CITY(EndCityFinder::create, Category.STRUCTURES, c -> c.endCity, "finder.endCities"),
+        JUNGLE_TEMPLE(JunglePyramidFinder::create, Category.STRUCTURES, c -> c.jungleTemple, "finder.jungleTemples"),
+        MONUMENT(MonumentFinder::create, Category.STRUCTURES, c -> c.monument, "finder.monuments"),
+        SWAMP_HUT(SwampHutFinder::create, Category.STRUCTURES, c -> c.swampHut, "finder.swampHuts"),
+        SHIPWRECK(ShipwreckFinder::create, Category.STRUCTURES, c -> c.shipwreck, "finder.shipwrecks"),
+        PILLAGER_OUTPOST(OutpostFinder::create, Category.STRUCTURES, c -> c.outpost, "finder.outposts"),
+        IGLOO(IglooFinder::create, Category.STRUCTURES, c -> c.igloo, "finder.igloo"),
+        TRIAL_CHAMBERS(TrialChambersFinder::create, Category.STRUCTURES, c -> c.trialChambers, "finder.trialChambers"),
 
-        END_PILLARS(EndPillarsFinder::create, Category.DECORATORS, Config.get().endPillars, "finder.endPillars"),
-        END_GATEWAY(EndGatewayFinder::create, Category.DECORATORS, Config.get().endGateway, "finder.endGateways"),
-        DUNGEON(DungeonFinder::create, Category.DECORATORS, Config.get().dungeon, "finder.dungeons"),
-        EMERALD_ORE(EmeraldOreFinder::create, Category.DECORATORS, Config.get().emeraldOre, "finder.emeraldOres"),
-        DESERT_WELL(DesertWellFinder::create, Category.DECORATORS, Config.get().desertWell, "finder.desertWells"),
-        WARPED_FUNGUS(WarpedFungusFinder::create, Category.DECORATORS, Config.get().warpedFungus, "finder.warpedFungus"),
+        END_PILLARS(EndPillarsFinder::create, Category.DECORATORS, c -> c.endPillars, "finder.endPillars"),
+        END_GATEWAY(EndGatewayFinder::create, Category.DECORATORS, c -> c.endGateway, "finder.endGateways"),
+        DUNGEON(DungeonFinder::create, Category.DECORATORS, c -> c.dungeon, "finder.dungeons"),
+        EMERALD_ORE(EmeraldOreFinder::create, Category.DECORATORS, c -> c.emeraldOre, "finder.emeraldOres"),
+        DESERT_WELL(DesertWellFinder::create, Category.DECORATORS, c -> c.desertWell, "finder.desertWells"),
+        WARPED_FUNGUS(WarpedFungusFinder::create, Category.DECORATORS, c -> c.warpedFungus, "finder.warpedFungus"),
 
-        BIOME(BiomeFinder::create, Category.BIOMES, Config.get().biome, "finder.biomes");
+        BIOME(BiomeFinder::create, Category.BIOMES, c -> c.biome, "finder.biomes");
 
         public final FinderBuilder finderBuilder;
         public final String nameKey;
-        private final Category category;
-        public FeatureToggle enabled;
+        private final Function<Config, FeatureToggle> toggle;
 
-        Type(FinderBuilder finderBuilder, Category category, FeatureToggle enabled, String nameKey) {
+        /**
+         * Cleared for the session when the matching feature fails to construct.
+         * Kept apart from the config toggle so a transient failure is never
+         * written to the player's config file.
+         */
+        public volatile boolean available = true;
+
+        Type(FinderBuilder finderBuilder, Category category, Function<Config, FeatureToggle> toggle, String nameKey) {
             this.finderBuilder = finderBuilder;
-            this.category = category;
-            this.enabled = enabled;
+            this.toggle = toggle;
             this.nameKey = nameKey;
         }
 
-        public static List<Type> getForCategory(Category category) {
-            return Arrays.stream(values()).filter(type -> type.category == category).collect(Collectors.toList());
+        /**
+         * Resolved against the live config every time rather than captured at
+         * class-initialisation. {@code Config.load} replaces the whole singleton,
+         * so a toggle captured in an enum constant could easily end up pointing
+         * at the defaults instead of the file the player actually has.
+         */
+        public FeatureToggle toggle() {
+            return this.toggle.apply(Config.get());
+        }
+
+        public boolean isEnabled() {
+            return this.available && this.toggle().get();
         }
     }
 }

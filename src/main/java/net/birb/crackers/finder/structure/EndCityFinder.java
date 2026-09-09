@@ -45,7 +45,9 @@ public class EndCityFinder extends Finder {
     }
 
     public static void reloadSearchPositions() {
-        SEARCH_POSITIONS = buildSearchPositions(CHUNK_POSITIONS, pos -> pos.getY() > 90 && pos.getY() < 40);
+        // && can never hold for both, so this filtered nothing and every End
+        // chunk was scanned over its full height by sixteen piece finders.
+        SEARCH_POSITIONS = buildSearchPositions(CHUNK_POSITIONS, pos -> pos.getY() > 90 || pos.getY() < 40);
     }
 
     public static List<Finder> create(Level world, ChunkPos chunkPos) {

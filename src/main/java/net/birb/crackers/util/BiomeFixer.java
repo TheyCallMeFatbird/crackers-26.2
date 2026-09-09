@@ -5,9 +5,7 @@ import com.seedfinding.mcbiome.biome.Biomes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.resources.Identifier;
-import net.minecraft.resources.ResourceKey;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -48,7 +46,7 @@ public class BiomeFixer {
 
     public static Biome swap(net.minecraft.world.level.biome.Biome biome) {
         ClientPacketListener clientPacketListener = Minecraft.getInstance().getConnection();
-        if (clientPacketListener == null) return Biomes.VOID;
+        if (clientPacketListener == null) return Biomes.THE_VOID;
 
         Identifier biomeID = clientPacketListener
                 .registryAccess()
@@ -58,15 +56,11 @@ public class BiomeFixer {
 
         if (biomeID == null) return Biomes.THE_VOID;
 
-        return COMPATREGISTRY.getOrDefault(biomeID.getPath(), Biomes.VOID);
-    }
-
-    public static net.minecraft.world.level.biome.Biome swap(Biome biome) {
-        // internal, meh
-        var biomeRegistries = VanillaRegistries.createLookup().lookupOrThrow(Registries.BIOME);
-
-        return biomeRegistries.get(ResourceKey.create(Registries.BIOME, Identifier.withDefaultNamespace(biome.getName()))).orElse(
-                biomeRegistries.getOrThrow(net.minecraft.world.level.biome.Biomes.THE_VOID)
-        ).value();
+        // THE_VOID is the caller's agreed "ignore this sample" marker. This
+        // used to return Biomes.VOID for unmapped biomes instead, which the
+        // callers do not skip - so dripstone caves, lush caves, deep dark,
+        // cherry grove and every other post-1.17 biome was fed to the solver
+        // as a real observation and quietly poisoned the biome search.
+        return COMPATREGISTRY.getOrDefault(biomeID.getPath(), Biomes.THE_VOID);
     }
 }

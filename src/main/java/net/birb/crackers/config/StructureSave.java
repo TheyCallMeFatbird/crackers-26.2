@@ -37,8 +37,12 @@ public class StructureSave {
             Files.createFile(saveFile);
             try (FileWriter writer = new FileWriter(saveFile.toFile())) {
                 for (DataStorage.Entry<Feature.Data<?>> dataEntry : baseData) {
-                    if (dataEntry.data.feature instanceof Structure structure) {
-                        String data = Structure.getName(structure.getClass()) +
+                    if (dataEntry.data.feature instanceof Structure<?, ?> structure) {
+                        // getName() on the instance, to match loadStructures.
+                        // Writing Structure.getName(class) here and reading
+                        // idk.getName() there meant a single divergence would
+                        // silently stop restoring that structure type.
+                        String data = structure.getName() +
                             ";" + dataEntry.data.chunkX +
                             ";" + dataEntry.data.chunkZ +
                             "\n";
@@ -101,9 +105,16 @@ public class StructureSave {
                 if (info.length < 1) return null;
                 long seed = Long.parseLong(info[0]);
                 long savedHash = info.length >= 2 ? Long.parseLong(info[1]) : 0L;
-                // If we have both hashes and they differ, the world was likely reset.
-                if (savedHash != 0L && currentHashedSeed != 0L && savedHash != currentHashedSeed) {
-                    logger.info("saved seed hash mismatch - treating as a new world");
+
+                // Only recall a seed we can positively tie to the world in
+                // front of us. This used to accept the saved seed whenever
+                // either hash was zero, which is exactly the case on a server
+                // that withholds its hashed seed - so rejoining after the
+                // server changed worlds would confidently report the old seed.
+                // Singleplayer does not rely on this path; it reads the seed
+                // from the integrated server every time.
+                if (savedHash == 0L || currentHashedSeed == 0L || savedHash != currentHashedSeed) {
+                    logger.info("saved seed cannot be tied to this world - ignoring it");
                     deleteSave();
                     return null;
                 }
@@ -163,7 +174,11 @@ public class StructureSave {
         if (minecraftClient.getConnection() != null) {
             Connection connection = minecraftClient.getConnection().getConnection();
             if (connection.isMemoryConnection()) {
-                String address = minecraftClient.getSingleplayerServer().getWorldPath(LevelResource.ROOT).getParent().getFileName().toString();
+                // Reached from ClientLevel#disconnect, by which point the
+                // integrated server may already have been torn down.
+                var server = minecraftClient.getSingleplayerServer();
+                if (server == null) return "Invalid.txt";
+                String address = server.getWorldPath(LevelResource.ROOT).getParent().getFileName().toString();
                 return address.replace("/","_").replace(":", "_")+".txt";
             } else {
                 return connection.getRemoteAddress().toString().replace("/","_").replace(":","_")+".txt";

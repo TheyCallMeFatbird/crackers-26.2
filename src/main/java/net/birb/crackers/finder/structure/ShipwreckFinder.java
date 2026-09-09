@@ -49,7 +49,7 @@ public class ShipwreckFinder extends BlockFinder {
         finders.add(new ShipwreckFinder(world, new ChunkPos(chunkPos.x(), chunkPos.z() + 1)));
         finders.add(new ShipwreckFinder(world, new ChunkPos(chunkPos.x() + 1, chunkPos.z() + 1)));
 
-        finders.add(new ShipwreckFinder(world, new ChunkPos(chunkPos.x() - 1, chunkPos.z() - 1)));
+        finders.add(new ShipwreckFinder(world, new ChunkPos(chunkPos.x() + 1, chunkPos.z() - 1)));
         finders.add(new ShipwreckFinder(world, new ChunkPos(chunkPos.x() - 1, chunkPos.z() + 1)));
         return finders;
     }

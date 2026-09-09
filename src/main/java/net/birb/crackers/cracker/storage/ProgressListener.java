@@ -1,27 +1,29 @@
 package net.birb.crackers.cracker.storage;
 
+import net.birb.crackers.config.Config;
 import net.birb.crackers.util.Log;
 
+/**
+ * Reports how far a search has got, in chat, at a rate a human can read.
+ * <p>
+ * Called from every solver worker, so it has to be cheap and thread-safe: the
+ * common case is a compare-and-set that decides not to print anything.
+ */
 public class ProgressListener {
 
-    protected float progress;
-    protected int count = 0;
+    private static final int STEP_PERCENT = 10;
 
-    public ProgressListener() {
-        this(0.0F);
-    }
+    private volatile int lastReported = -1;
 
-    public ProgressListener(float progress) {
-        this.progress = progress;
-    }
-
-    public synchronized void addPercent(float percent, boolean debug) {
-        if ((this.count & 3) == 0 && debug) {
-            Log.debug(Log.translate("tmachine.progress") + ": " + this.progress + "%");
+    /** @param fraction completed work in [0, 1] */
+    public void setFraction(double fraction) {
+        if (!Config.get().debug) return;
+        int bucket = (int) (Math.min(1.0D, Math.max(0.0D, fraction)) * 100.0D) / STEP_PERCENT;
+        if (bucket <= this.lastReported) return;
+        synchronized (this) {
+            if (bucket <= this.lastReported) return;
+            this.lastReported = bucket;
         }
-
-        this.count++;
-        this.progress += percent;
+        Log.debug(Log.translate("tmachine.progress") + ": " + (bucket * STEP_PERCENT) + "%");
     }
-
 }

@@ -20,6 +20,8 @@ public class JigsawFinder extends PieceFinder {
 
     public static Map<Direction, List<BlockPos>> getSearchPositions(int xRotation, int zRotation, int xOffset, int zOffset, Vec3i size) {
         Map<Direction, List<BlockPos>> positions = new HashMap<>();
+        // One snapshot: the field is replaced wholesale on dimension change.
+        List<BlockPos> column = CHUNK_POSITIONS;
 
         for(Direction direction : Direction.Plane.HORIZONTAL) {
             positions.put(direction, new ArrayList<>());
@@ -39,7 +41,7 @@ public class JigsawFinder extends PieceFinder {
             if (x >= 0 && x < 16 && z >= 0 && z < 16 ) {
                 int startIndex = heightContext.getHeight()*x*16+heightContext.getHeight()*z;
                 for (int y = 0; y < heightContext.getHeight(); y++) {
-                    positions.get(direction).add(CHUNK_POSITIONS.get(y+startIndex));
+                    positions.get(direction).add(column.get(y+startIndex));
                 }
             } else {
                 for (int y = heightContext.getBottomY(); y < heightContext.getTopY(); y++) {

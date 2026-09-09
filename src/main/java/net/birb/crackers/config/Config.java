@@ -33,17 +33,13 @@ public class Config {
     public FeatureToggle endPillars = new FeatureToggle(true);
     public FeatureToggle endGateway = new FeatureToggle(false);
     public FeatureToggle dungeon = new FeatureToggle(true);
-    public FeatureToggle emeraldOre = new FeatureToggle(false);
+    public FeatureToggle emeraldOre = new FeatureToggle(true);
     public FeatureToggle desertWell = new FeatureToggle(false);
     public FeatureToggle warpedFungus = new FeatureToggle(false);
     public FeatureToggle biome = new FeatureToggle(false);
-    public RenderType render = RenderType.XRAY;
     public boolean active = true;
     public boolean debug = false;
-    public boolean antiXrayBypass = true;
     private MCVersion version = MCVersion.latest();
-    public boolean databaseSubmits = false;
-    public boolean anonymusSubmits = false;
 
     public static void save() {
         Gson gson = new GsonBuilder().setPrettyPrinting().create();
@@ -63,7 +59,11 @@ public class Config {
         if (!file.exists()) return;
 
         try (Reader reader = new FileReader(file)) {
-            INSTANCE = gson.fromJson(reader, Config.class);
+            // fromJson returns null for an empty or literally-null file without
+            // throwing. Assigning that would NPE inside Finder.Type's static
+            // initialiser and take the whole mod down on startup.
+            Config parsed = gson.fromJson(reader, Config.class);
+            if (parsed != null) INSTANCE = parsed;
         } catch (Exception e) {
             logger.error("seedcracker couldn't load config, deleting it...", e);
             file.delete();
@@ -84,7 +84,4 @@ public class Config {
         Features.init(version);
     }
 
-    public enum RenderType {
-        OFF, ON, XRAY
-    }
 }
